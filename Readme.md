@@ -1,3 +1,8 @@
+<!--
+This file provides a high-level overview of the Speaker Diarization project,
+including its features, installation instructions, usage guidelines,
+contribution information, and license details.
+-->
 # Speaker Diarization Project
 
 ## Overview
