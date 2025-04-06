@@ -3,11 +3,44 @@ import numpy as np
 import webrtcvad
 import scipy.io.wavfile as wav
 import matplotlib.pyplot as plt
+import os
+import sys
 
-# Load Denoised Audio
-# audio_file = "../audio_files/0638.wav"
-audio_file = "../audio_files/denoised.wav"
+# The script should accept an input file path as a command-line argument
+# or use the default if none is provided
+if len(sys.argv) > 1:
+    audio_file = sys.argv[1]
+else:
+    # Default file (used when script is run directly)
+    audio_file = "../audio_files/denoised.wav"
 
+# Get output segments directory from command line or environment variable
+segments_dir = "../audio_files/segments"  # Default
+if len(sys.argv) > 2:
+    segments_dir = sys.argv[2]
+elif 'SEGMENTS_DIR' in os.environ:
+    segments_dir = os.environ['SEGMENTS_DIR']
+elif os.path.exists("audio_files/segments"):
+    segments_dir = "audio_files/segments"
+
+# Make sure the segments directory exists
+if not os.path.exists(segments_dir):
+    print(f"Creating segments directory at {segments_dir}")
+    try:
+        os.makedirs(segments_dir)
+    except Exception as e:
+        print(f"Error creating segments directory: {e}")
+    
+# If the file doesn't exist, try a direct path as fallback
+if not os.path.exists(audio_file):
+    print(f"Warning: File {audio_file} not found, checking alternatives")
+    if os.path.exists("audio_files/denoised.wav"):
+        audio_file = "audio_files/denoised.wav"
+    elif os.path.exists("audio_files/0638.wav"):
+        audio_file = "audio_files/0638.wav"
+
+print(f"Loading audio from: {audio_file}")
+print(f"Segments will be saved to: {segments_dir}")
 y, sr = librosa.load(audio_file, sr=None)  # Load as float32 (-1 to 1)
 
 # Function to apply VAD and get speech timestamps
@@ -95,7 +128,7 @@ final_segments = merge_short_segments(final_segments, min_duration=1.5)
 # Save Segmented Audio Files
 for i, (start, end) in enumerate(final_segments):
     segment = y[int(start * sr): int(end * sr)]
-    output_file = f"../audio_files/segments/segment_{i+1}.wav"
+    output_file = os.path.join(segments_dir, f"segment_{i+1}.wav")
     wav.write(output_file, sr, (segment * 32767).astype(np.int16))
     print(f"Saved {output_file} ({round(end - start, 2)} sec)")
 
