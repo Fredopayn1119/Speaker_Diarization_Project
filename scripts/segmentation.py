@@ -95,7 +95,7 @@ final_segments = merge_short_segments(final_segments, min_duration=1.5)
 # Save Segmented Audio Files
 for i, (start, end) in enumerate(final_segments):
     segment = y[int(start * sr): int(end * sr)]
-    output_file = f"../audio_files//segments/segment_{i+1}.wav"
+    output_file = f"../audio_files/segments/segment_{i+1}.wav"
     wav.write(output_file, sr, (segment * 32767).astype(np.int16))
     print(f"Saved {output_file} ({round(end - start, 2)} sec)")
 
