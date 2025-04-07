@@ -15,10 +15,12 @@ class SpeakerClustering:
     """
     Clustering methods for speaker diarization.
     Supports different clustering algorithms:
-    - Agglomerative Hierarchical Clustering (AHC)
+    - Agglomerative Hierarchical Clustering (AHC) - Can automatically determine speakers with threshold
+    - DBSCAN - Automatically determines number of clusters based on density
+    
+    Methods requiring pre-specified speaker count (now removed):
     - Spectral Clustering
-    - K-Means (if number of speakers is known)
-    - DBSCAN
+    - K-Means
     """
     
     def __init__(self, method="ahc"):
@@ -26,8 +28,13 @@ class SpeakerClustering:
         Initialize the clustering model.
         
         Args:
-            method: Clustering method - "ahc", "spectral", "kmeans", or "dbscan"
+            method: Clustering method - "ahc" or "dbscan"
+                   (methods that can automatically determine number of speakers)
         """
+        if method.lower() not in ["ahc", "dbscan"]:
+            print(f"WARNING: Method '{method}' requires pre-specifying number of speakers. Defaulting to 'ahc'.")
+            method = "ahc"
+            
         self.method = method.lower()
         self.labels_ = None
         self.embeddings = None
@@ -61,6 +68,9 @@ class SpeakerClustering:
             
         Returns:
             Estimated number of speakers
+        
+        Raises:
+            ValueError: If unable to determine the number of speakers
         """
         # Calculate distance matrix (using cosine distance)
         distance_matrix = dist.squareform(dist.pdist(embeddings, metric='cosine'))
@@ -70,7 +80,7 @@ class SpeakerClustering:
         
         # Try different thresholds and evaluate silhouette score
         best_score = -1
-        best_k = 2  # Default to 2 speakers if we can't determine
+        best_k = -1  # Default to -1 to indicate "not found"
         
         for k in range(2, min(max_speakers + 1, len(embeddings))):
             # Skip if we have too few samples compared to clusters
@@ -112,57 +122,70 @@ class SpeakerClustering:
                     best_k = k
         
         # Method 2: Eigengap heuristic for spectral clustering (simpler version)
-        if len(embeddings) > best_k * 2:  # Only if we have enough samples
-            # Create affinity matrix from distance matrix
-            affinity_matrix = 1 - distance_matrix
-            
-            # Set small values to zero (sparse affinity)
-            threshold = np.percentile(affinity_matrix.flatten(), 50)  # Median as threshold
-            affinity_matrix[affinity_matrix < threshold] = 0
-            
-            # Calculate Laplacian
-            from scipy.sparse.linalg import eigsh
-            from scipy.sparse import csr_matrix
-            
-            D = np.diag(np.sum(affinity_matrix, axis=1))
-            L = D - affinity_matrix
-            L_sparse = csr_matrix(L)
-            
-            # Get eigenvalues
-            try:
-                eigenvalues, _ = eigsh(L_sparse, k=min(max_speakers+5, len(embeddings)-1), 
-                                      which='SM', return_eigenvectors=True)
-                
-                # Sort eigenvalues
-                eigenvalues = sorted(eigenvalues)
-                
-                # Find largest eigengap
-                eigengaps = np.diff(eigenvalues)
-                if len(eigengaps) > 1:
-                    # Add 1 because gap is between eigenvalues
-                    k_spectral = np.argmax(eigengaps[:max_speakers-1]) + 1
-                    
-                    print(f"Eigengap heuristic suggests {k_spectral} speakers")
-                    
-                    # If eigengap method gives a reasonable result, consider it
-                    if 2 <= k_spectral <= max_speakers:
-                        # Average with silhouette method for robustness
-                        best_k = (best_k + k_spectral) // 2
-            except:
-                print("Eigengap calculation failed, using silhouette score only")
+        eigengap_k = -1  # Default to -1 to indicate "not found"
         
-        print(f"Estimated number of speakers: {best_k}")
-        return best_k
+        # if len(embeddings) > 3:  # Only if we have enough samples
+        #     # Create affinity matrix from distance matrix
+        #     affinity_matrix = 1 - distance_matrix
+            
+        #     # Set small values to zero (sparse affinity)
+        #     threshold = np.percentile(affinity_matrix.flatten(), 50)  # Median as threshold
+        #     affinity_matrix[affinity_matrix < threshold] = 0
+            
+        #     # Calculate Laplacian
+        #     from scipy.sparse.linalg import eigsh
+        #     from scipy.sparse import csr_matrix
+            
+        #     D = np.diag(np.sum(affinity_matrix, axis=1))
+        #     L = D - affinity_matrix
+        #     L_sparse = csr_matrix(L)
+            
+        #     # Get eigenvalues
+        #     try:
+        #         eigenvalues, _ = eigsh(L_sparse, k=min(max_speakers+5, len(embeddings)-1), 
+        #                               which='SM', return_eigenvectors=True)
+                
+        #         # Sort eigenvalues
+        #         eigenvalues = sorted(eigenvalues)
+                
+        #         # Find largest eigengap
+        #         eigengaps = np.diff(eigenvalues)
+        #         if len(eigengaps) > 1:
+        #             # Add 1 because gap is between eigenvalues
+        #             eigengap_k = np.argmax(eigengaps[:max_speakers-1]) + 1
+                    
+        #             print(f"Eigengap heuristic suggests {eigengap_k} speakers")
+        #     except:
+        #         print("Eigengap calculation failed, using silhouette score only")
+        
+        # Combine results from both methods
+        if best_k != -1 and eigengap_k != -1:
+            # If both methods found a result, average them
+            final_k = (best_k + eigengap_k) // 2
+            print(f"Combined estimate: {final_k} speakers (silhouette: {best_k}, eigengap: {eigengap_k})")
+        elif best_k != -1:
+            # Only silhouette method worked
+            final_k = best_k
+            print(f"Estimated number of speakers: {final_k} (based on silhouette)")
+        elif eigengap_k != -1:
+            # Only eigengap method worked
+            final_k = eigengap_k
+            print(f"Estimated number of speakers: {final_k} (based on eigengap)")
+        else:
+            # No method worked
+            raise ValueError("Unable to determine the number of speakers. Please specify the number of speakers manually.")
+        
+        return final_k
     
     def perform_clustering(self, embeddings_dict: Dict[str, np.ndarray], 
-                          num_speakers: int = None, threshold: float = None):
+                          num_speakers: int = None, threshold: float = 0.3):
         """
         Perform clustering on speaker embeddings.
         
         Args:
             embeddings_dict: Dictionary mapping segment names to embeddings
-            num_speakers: Number of speakers (if known)
-            threshold: Distance threshold for AHC (if num_speakers is not specified)
+            num_speakers: Number of speakers (estimated automatically if None)
+            threshold: Distance threshold for AHC (default 0.3, determines clusters automatically)
             
         Returns:
             Dictionary mapping segment names to speaker labels
@@ -172,101 +195,72 @@ class SpeakerClustering:
         self.embeddings = X
         self.segment_names = segment_names
         
-        # Estimate number of speakers if not provided
+        # Estimate number of speakers if not provided (just for information)
+        estimated_speakers = None
         if num_speakers is None:
-            print("Estimating number of speakers...")
-            num_speakers = self.estimate_num_speakers(X)
+            try:
+                print("Estimating number of speakers (for reference)...")
+                estimated_speakers = self.estimate_num_speakers(X)
+                print(f"Estimated {estimated_speakers} speakers, but will use automatic clustering")
+            except ValueError as e:
+                print(f"Could not estimate speakers: {e}")
+                print("Will use automatic clustering methods")
         
-        print(f"Clustering with method: {self.method}, target speakers: {num_speakers}")
+        print(f"Clustering with method: {self.method}")
         
         if self.method == "ahc":
-            # Agglomerative Hierarchical Clustering
+            # Agglomerative Hierarchical Clustering with automatic threshold
             
             # Calculate distance matrix (cosine distance)
             distance_matrix = dist.squareform(dist.pdist(X, metric='cosine'))
             
-            if threshold is not None:
-                # Use distance threshold to determine clusters
+            try:
+                # Try with affinity parameter (newer scikit-learn)
+                clustering = AgglomerativeClustering(
+                    n_clusters=None,
+                    distance_threshold=threshold,
+                    affinity='precomputed',
+                    linkage='average'
+                )
+                self.labels_ = clustering.fit_predict(distance_matrix)
+            except TypeError:
+                # Fall back to older versions or different parameter formats
                 try:
-                    # Try with affinity parameter (newer scikit-learn)
                     clustering = AgglomerativeClustering(
                         n_clusters=None,
                         distance_threshold=threshold,
-                        affinity='precomputed',
                         linkage='average'
                     )
                     self.labels_ = clustering.fit_predict(distance_matrix)
-                except TypeError:
-                    # Fall back to older versions or different parameter formats
-                    try:
-                        clustering = AgglomerativeClustering(
-                            n_clusters=None,
-                            distance_threshold=threshold,
-                            linkage='average'
-                        )
-                        self.labels_ = clustering.fit_predict(distance_matrix)
-                    except:
-                        # Last resort: use fixed number of clusters
-                        print("Warning: Threshold-based clustering failed, using fixed number of clusters")
-                        clustering = AgglomerativeClustering(
-                            n_clusters=num_speakers,
-                            linkage='average'
-                        )
-                        self.labels_ = clustering.fit_predict(X)
-                
-                print(f"AHC with threshold {threshold} found {len(np.unique(self.labels_))} speakers")
-            else:
-                # Use fixed number of clusters
-                try:
-                    # Try with affinity parameter first
-                    clustering = AgglomerativeClustering(
-                        n_clusters=num_speakers,
-                        affinity='precomputed',
-                        linkage='average'
-                    )
-                    self.labels_ = clustering.fit_predict(distance_matrix)
-                except TypeError:
-                    # Fall back to standard parameters
-                    print("Using standard Agglomerative Clustering parameters")
+                except Exception as e:
+                    print(f"Error with threshold-based clustering: {e}")
+                    # If we have an estimate, use that as a fallback
+                    if estimated_speakers is not None:
+                        print(f"Using estimated speakers ({estimated_speakers}) as fallback")
+                        num_speakers = estimated_speakers
+                    else:
+                        # Default to 2 speakers if we can't estimate
+                        print("Default to 2 speakers as fallback")
+                        num_speakers = 2
+                        
                     clustering = AgglomerativeClustering(
                         n_clusters=num_speakers,
                         linkage='average'
                     )
                     self.labels_ = clustering.fit_predict(X)
             
-        elif self.method == "spectral":
-            # Spectral Clustering
-            
-            # Create affinity matrix (1 - cosine distance)
-            affinity_matrix = 1 - dist.squareform(dist.pdist(X, metric='cosine'))
-            
-            # Threshold the affinity matrix to make it sparse
-            threshold = np.percentile(affinity_matrix.flatten(), 50)  # Use median as threshold
-            affinity_matrix[affinity_matrix < threshold] = 0
-            
-            clustering = SpectralClustering(
-                n_clusters=num_speakers,
-                affinity='precomputed',
-                random_state=42
-            )
-            self.labels_ = clustering.fit_predict(affinity_matrix)
-            
-        elif self.method == "kmeans":
-            # K-Means clustering (simpler but less effective for speaker embeddings)
-            clustering = KMeans(
-                n_clusters=num_speakers,
-                random_state=42,
-                n_init=20  # More initializations for better results
-            )
-            self.labels_ = clustering.fit_predict(X)
+            print(f"AHC with threshold {threshold} found {len(np.unique(self.labels_))} speakers")
             
         elif self.method == "dbscan":
             # DBSCAN (automatically determines number of clusters)
-            # For DBSCAN, we need to tune eps and min_samples
             
             # Heuristic to determine eps: use mean of distances to k-nearest neighbors
             from sklearn.neighbors import NearestNeighbors
-            k = min(len(X) - 1, max(num_speakers * 2, 5))
+            
+            # Use estimated speakers if available, otherwise default to 2
+            k_speakers = estimated_speakers if estimated_speakers is not None else 2
+            k = min(len(X) - 1, max(k_speakers * 2, 5))
+            
             nbrs = NearestNeighbors(n_neighbors=k).fit(X)
             distances, _ = nbrs.kneighbors(X)
             
@@ -275,7 +269,7 @@ class SpeakerClustering:
             
             clustering = DBSCAN(
                 eps=eps,
-                min_samples=max(2, len(X) // (num_speakers * 5)),  # Adjust based on expected cluster size
+                min_samples=max(2, len(X) // 10),  # More reasonable default
                 metric='cosine'
             )
             self.labels_ = clustering.fit_predict(X)
@@ -288,13 +282,19 @@ class SpeakerClustering:
                     
                     # Get non-noise cluster centers
                     valid_labels = np.unique(self.labels_[self.labels_ >= 0])
-                    centers = np.array([X[self.labels_ == l].mean(axis=0) for l in valid_labels])
                     
-                    # Assign noise points to nearest center
-                    for idx in noise_indices:
-                        dists = [dist.cosine(X[idx], center) for center in centers]
-                        closest = valid_labels[np.argmin(dists)]
-                        self.labels_[idx] = closest
+                    # If no valid clusters were found, create a single cluster for all points
+                    if len(valid_labels) == 0:
+                        print("No valid clusters found, creating a single cluster")
+                        self.labels_[:] = 0
+                    else:
+                        centers = np.array([X[self.labels_ == l].mean(axis=0) for l in valid_labels])
+                        
+                        # Assign noise points to nearest center
+                        for idx in noise_indices:
+                            dists = [dist.cosine(X[idx], center) for center in centers]
+                            closest = valid_labels[np.argmin(dists)]
+                            self.labels_[idx] = closest
         
         else:
             raise ValueError(f"Unsupported clustering method: {self.method}")
@@ -356,15 +356,17 @@ class SpeakerClustering:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
         plt.show()
         
-        # If we have enough samples, also show t-SNE visualization
+        # t-SNE visualization if enough samples are available
         if len(self.segment_names) >= 10:
-            tsne = TSNE(n_components=2, random_state=42)
+            # Ensure perplexity is less than n_samples
+            perplexity_value = min(30, len(self.embeddings) - 1)
+            tsne = TSNE(n_components=2, random_state=42, perplexity=perplexity_value, n_iter=250)
             X_tsne = tsne.fit_transform(self.embeddings)
             
             plt.figure(figsize=(12, 10))
             for label in unique_labels:
                 mask = self.labels_ == label
-                plt.scatter(X_tsne[mask, 0], X_tsne[mask, 1], 
+                plt.scatter(X_tsne[mask, 0], X_tsne[mask, 1],
                            label=f'Speaker {label}',
                            color=cmap(label % 10),
                            alpha=0.8)
@@ -376,6 +378,7 @@ class SpeakerClustering:
                 tsne_path = output_path.replace('.png', '_tsne.png')
                 plt.savefig(tsne_path, dpi=300, bbox_inches='tight')
             plt.show()
+            plt.close()
     
     def generate_diarization_result(self, segment_to_speaker: Dict[str, int], 
                                    segment_timing_info: Dict[str, Dict[str, float]] = None) -> Dict:

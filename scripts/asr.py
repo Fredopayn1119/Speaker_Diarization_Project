@@ -22,13 +22,15 @@ class ASRProcessor:
         Initialize the ASR processor.
         
         Args:
-            model_name: Whisper model size ("tiny", "base", "small", "medium", "large")
-            device: Device to run the model on ("cpu", "cuda")
+            model_name: Whisper model size ("tiny", "base", "small", "medium", "large", "turbo")
+            device: Device to run the model on ("cpu", "cuda", "mps")
         """
         self.model_name = model_name
         
         # Set device
         if device is None:
+            # Check for Apple Silicon (M1/M2/M3) GPU
+            
             if torch.cuda.is_available():
                 self.device = "cuda"
             else:

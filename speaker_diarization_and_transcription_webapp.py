@@ -3,6 +3,7 @@ import os
 import tempfile
 import json
 from diarization_pipeline import noise_removal, segment_audio, extract_features, cluster_speakers, transcribe_audio, ensure_directory_exists
+import datetime
 
 st.set_page_config(page_title="Speaker Diarization and Transcription Web App", layout="centered")
 
@@ -52,78 +53,89 @@ st.markdown("Upload an audio file and click the button to generate a transcript.
 
 audio = st.file_uploader("Upload an audio file", type=["wav", "mp3"])
 
-if audio:
-    st.audio(audio, format='audio/wav')
 
 if audio and st.button("Generate Transcript"):
     with st.spinner("Running speaker diarization..."):
-        # Create a temporary directory to store processing files
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Save the uploaded file to the temporary directory
-            audio_path = os.path.join(temp_dir, "input_audio.wav")
-            with open(audio_path, "wb") as f:
-                f.write(audio.getbuffer())
-            
-            # Set up output directory
-            output_dir = os.path.join(temp_dir, "output")
-            ensure_directory_exists(output_dir)
-            
-            # Run the diarization pipeline
-            try:
-                # Step 1: Noise Removal
-                st.text("Removing background noise...")
-                denoised_file = os.path.join(output_dir, "denoised.wav")
-                cleaned_audio = noise_removal(audio_path, denoised_file, False)
-                
-                # Step 2: Audio Segmentation
-                st.text("Segmenting audio...")
-                segment_dir = segment_audio(cleaned_audio, output_dir, False)
-                
-                # Step 3: Feature Extraction
-                st.text("Extracting speaker features...")
-                embeddings = extract_features(segment_dir, output_dir, "dvector", False)
-                
-                # Step 4: Speaker Clustering
-                st.text("Clustering speakers...")
-                diarization_result = cluster_speakers(embeddings, output_dir, "ahc", None, False)
-                
-                # Step 5: Transcription
-                st.text("Transcribing audio...")
-                final_result = transcribe_audio(segment_dir, diarization_result, output_dir, "tiny")
-                
-                # Process the results into a readable transcript
-                return_value = []
-                
-                # Load the full result from the JSON file
-                result_path = os.path.join(output_dir, "full_result.json")
-                with open(result_path, 'r') as f:
-                    result_data = json.load(f)
-                
-                # Extract speaker segments with transcription
-                for speaker_id, segments in result_data["speaker_segments"].items():
-                    speaker_name = f"Speaker {int(speaker_id) + 1}"
-                    for segment in segments:
-                        if "transcription" in segment and segment["transcription"].strip():
-                            return_value.append(f"[{speaker_name}]: {segment['transcription']}")
-                            return_value.append("\n")
-                
-                if not return_value:
-                    return_value = ["No transcribable speech detected in the audio."]
-            
-            except Exception as e:
-                st.error(f"Error processing audio: {str(e)}")
-                return_value = [f"Error: {str(e)}"]
+        # Create a permanent directory to store processing files
+        # Use timestamp to create a unique folder name
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        sample_dir = os.path.join(base_dir, "sample_audio")
+        ensure_directory_exists(sample_dir)
         
-        # Write results to file
-        new_file = open("generated_transcript.txt", 'w')
-        for i in return_value:
-            new_file.write(i)
-        new_file.close()
-
-        with open("generated_transcript.txt", 'r') as file:
-            transcript = file.read()
+        # Create a unique session folder with timestamp
+        output_dir = os.path.join(sample_dir, f"session_{timestamp}")
+        ensure_directory_exists(output_dir)
+        
+        # Save the uploaded file to the output directory
+        file_extension = os.path.splitext(audio.name)[1]
+        input_filename = f"input_audio{file_extension}"
+        audio_path = os.path.join(output_dir, input_filename)
+        
+        with open(audio_path, "wb") as f:
+            f.write(audio.getbuffer())
+        
+        st.info(f"Saved input audio to: {output_dir}")
+        
+        # Run the diarization pipeline
+        try:
+            # Step 1: Noise Removal
+            st.text("Removing background noise...")
+            denoised_file = os.path.join(output_dir, "denoised.wav")
+            cleaned_audio = noise_removal(audio_path, denoised_file, False)
+            
+            # Step 2: Audio Segmentation
+            st.text("Segmenting audio...")
+            segment_dir = segment_audio(cleaned_audio, output_dir, False)
+            
+            # Step 3: Feature Extraction
+            st.text("Extracting speaker features...")
+            embeddings = extract_features(segment_dir, output_dir, None, False)
+            
+            # Step 4: Speaker Clustering
+            st.text("Clustering speakers...")
+            diarization_result = cluster_speakers(embeddings, output_dir, "ahc", None, False)
+            
+            # Step 5: Transcription
+            st.text("Transcribing audio...")
+            final_result = transcribe_audio(segment_dir, diarization_result, output_dir, "medium")
+            
+            # Process the results into a readable transcript
+            return_value = []
+            
+            # Load the full result from the JSON file
+            result_path = os.path.join(output_dir, "full_result.json")
+            with open(result_path, 'r') as f:
+                result_data = json.load(f)
+            
+            # Extract speaker segments with transcription
+            for speaker_id, segments in result_data["speaker_segments"].items():
+                speaker_name = f"Speaker {int(speaker_id) + 1}"
+                for segment in segments:
+                    if "transcription" in segment and segment["transcription"].strip():
+                        return_value.append(f"[{speaker_name}]: {segment['transcription']}")
+                        return_value.append("\n")
+            
+            if not return_value:
+                return_value = ["No transcribable speech detected in the audio."]
+        
+        except Exception as e:
+            st.error(f"Error processing audio: {str(e)}")
+            return_value = [f"Error: {str(e)}"]
+        
+        # Convert return_value list directly to a string for display
+        transcript = ''.join(return_value)
         
         st.subheader("Transcript")
         st.text_area("Diarized Transcript", transcript, height=300)
+        
+        # Save transcript in the permanent directory
+        transcript_path = os.path.join(output_dir, "transcript.txt")
+        try:
+            with open(transcript_path, 'w') as transcript_file:
+                transcript_file.write(transcript)
+            st.success(f"All processing files and transcript saved to: {output_dir}")
+        except Exception as e:
+            st.warning(f"Could not save transcript file: {str(e)}")
 
 

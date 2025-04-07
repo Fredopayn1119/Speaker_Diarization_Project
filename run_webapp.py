@@ -9,7 +9,28 @@ Usage:
     python run_webapp.py
 """
 
-from diarization_pipeline import run_webapp
+import subprocess
+import sys
+
+def run_webapp():
+    """
+    Run the Speaker Diarization and Transcription web app.
+    """
+
+    
+    try:
+        subprocess.run([sys.executable, "-m", "streamlit", "run", 
+                       "speaker_diarization_and_transcription_webapp.py"], 
+                       check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error running Streamlit app: {e}")
+        print("Make sure streamlit is installed by running: pip install streamlit")
+    except KeyboardInterrupt:
+        print("Web app stopped.")
+
+
+
+
 
 if __name__ == "__main__":
     print("Starting Speaker Diarization and Transcription Web App...")

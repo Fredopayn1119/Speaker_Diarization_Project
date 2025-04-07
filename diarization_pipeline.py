@@ -29,6 +29,8 @@ warnings.filterwarnings("ignore")
 from scripts.feature_extraction import FeatureExtractor
 from scripts.clustering import SpeakerClustering
 from scripts.asr import ASRProcessor
+from scripts.segmentation import segment_audio_native
+from scripts.noise_removal import noise_removal_native
 
 # Set up logging
 logging.basicConfig(
@@ -128,24 +130,18 @@ def ensure_directory_exists(path):
         logger.info(f"Created directory: {path}")
 
 def noise_removal(input_file, output_file, skip_denoise=False):
-    """Perform noise removal using the denoise tool"""
-    if skip_denoise and os.path.exists(output_file):
-        logger.info(f"Skipping denoising, using existing file: {output_file}")
-        return output_file
     
+    if skip_denoise:
+        return input_file
+
     logger.info(f"Removing noise from {input_file}")
     try:
-        subprocess.run(['denoise', input_file, output_file, '--plot'], check=True)
-        logger.info(f"Denoising completed. Saved to {output_file}")
+        noise_removal_native(input_file, output_file)
+        logger.info(f"Denoising completed. Output saved to {output_file}")
         return output_file
     except subprocess.CalledProcessError as e:
-        logger.error(f"Error during denoising: {e}")
-        logger.warning(f"Using original file without denoising: {input_file}")
-        return input_file
-    except FileNotFoundError:
-        logger.error("Denoise command not found. Make sure RNNoise is installed.")
-        logger.warning(f"Using original file without denoising: {input_file}")
-        return input_file
+        logger.error(f"Error during noise removal: {str(e)}")
+        raise
 
 def segment_audio(input_file, output_dir, skip_segmentation=False):
     """Segment audio into speech chunks"""
@@ -159,36 +155,43 @@ def segment_audio(input_file, output_dir, skip_segmentation=False):
     # logger.info(f"Segmenting audio from {input_file}")
     
     try:
-        # Import and run segmentation script with the input file path
-        import sys
-        import importlib.util
+        # # Import and run segmentation script with the input file path
+        # import sys
+        # import importlib.util
         
-        # Store original argv and sys.path
-        original_argv = sys.argv
-        original_path = sys.path.copy()
+        # # Store original argv and sys.path
+        # original_argv = sys.argv
+        # original_path = sys.path.copy()
         
-        # Get absolute path to segment_dir to pass to segmentation script
-        abs_segment_dir = os.path.abspath(segment_dir)
+        # # Get absolute path to segment_dir to pass to segmentation script
+        # abs_segment_dir = os.path.abspath(segment_dir)
         
-        # Modify sys.argv to include the input file path and segments output directory
-        sys.argv = [sys.argv[0], input_file, abs_segment_dir]
+        # # Modify sys.argv to include the input file path and segments output directory
+        # sys.argv = [sys.argv[0], input_file, abs_segment_dir]
         
-        # Modify sys.path to include the script directory
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        sys.path.insert(0, script_dir)
+        # # Modify sys.path to include the script directory
+        # script_dir = os.path.dirname(os.path.abspath(__file__))
+        # sys.path.insert(0, script_dir)
         
-        # Set environment variable for segments directory
-        os.environ['SEGMENTS_DIR'] = abs_segment_dir
+        # # Set environment variable for segments directory
+        # os.environ['SEGMENTS_DIR'] = abs_segment_dir
         
-        # Import the segmentation module
-        import scripts.segmentation as segmentation
+        # # Import the segmentation module
+        # import scripts.segmentation as segmentation
         
-        # Reload the module to ensure fresh execution with new paths
-        importlib.reload(segmentation)
+        # # Reload the module to ensure fresh execution with new paths
+        # importlib.reload(segmentation)
         
-        # Restore original argv and sys.path
-        sys.argv = original_argv
-        sys.path = original_path
+        # # Restore original argv and sys.path
+        # sys.argv = original_argv
+        # sys.path = original_path
+
+        segment_audio_native(
+            input_file,
+            segment_dir,
+            plot_output_path=os.path.join(segment_dir, "segmentation_plot.png"),
+            show_plot=False
+        )
         
         logger.info(f"Segmentation completed. Segments saved to {segment_dir}")
         return segment_dir
@@ -197,7 +200,7 @@ def segment_audio(input_file, output_dir, skip_segmentation=False):
         logger.error(f"Error during segmentation: {str(e)}")
         raise
 
-def extract_features(segment_dir, output_dir, embedding_method="xvector", visualize=False):
+def extract_features(segment_dir, output_dir, embedding_method="ecapa", visualize=False):
     """Extract speaker embeddings from segments"""
     output_file = os.path.join(output_dir, "segment_embeddings.npy")
     
@@ -228,8 +231,9 @@ def cluster_speakers(embeddings, output_dir, clustering_method="ahc", num_speake
     # Create clustering model
     clustering = SpeakerClustering(method=clustering_method)
     
-    # Perform clustering
-    segment_to_speaker = clustering.perform_clustering(embeddings, num_speakers=num_speakers)
+    # Perform clustering - now automatically determines number of speakers
+    # If the method is not supported (requires pre-specifying speakers), it will automatically default to "ahc"
+    segment_to_speaker = clustering.perform_clustering(embeddings, threshold=0.3)
     
     # Generate diarization result
     diarization_result = clustering.generate_diarization_result(segment_to_speaker)
@@ -333,22 +337,7 @@ def main():
     
     logger.info(f"Pipeline completed in {duration:.2f} seconds")
 
-def run_webapp():
-    """
-    Run the Speaker Diarization and Transcription web app.
-    """
-    import subprocess
-    import sys
-    
-    try:
-        subprocess.run([sys.executable, "-m", "streamlit", "run", 
-                       "speaker_diarization_and_transcription_webapp.py"], 
-                       check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Error running Streamlit app: {e}")
-        print("Make sure streamlit is installed by running: pip install streamlit")
-    except KeyboardInterrupt:
-        print("Web app stopped.")
+
 
 if __name__ == "__main__":
     main()
