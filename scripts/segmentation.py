@@ -130,14 +130,14 @@ for i, (start, end) in enumerate(final_segments):
     segment = y[int(start * sr): int(end * sr)]
     output_file = os.path.join(segments_dir, f"segment_{i+1}.wav")
     wav.write(output_file, sr, (segment * 32767).astype(np.int16))
-    print(f"Saved {output_file} ({round(end - start, 2)} sec)")
+    # print(f"Saved {output_file} ({round(end - start, 2)} sec)")
 
-# Plot Segmentation
-plt.figure(figsize=(12, 4))
-librosa.display.waveshow(y, sr=sr, alpha=0.5)
-for start, end in final_segments:
-    plt.axvspan(start, end, color='red', alpha=0.3)
-plt.title("Speaker Segmentation")
-plt.xlabel("Time (s)")
-plt.ylabel("Amplitude")
-plt.show()
+# # Plot Segmentation
+# plt.figure(figsize=(12, 4))
+# librosa.display.waveshow(y, sr=sr, alpha=0.5)
+# for start, end in final_segments:
+#     plt.axvspan(start, end, color='red', alpha=0.3)
+# plt.title("Speaker Segmentation")
+# plt.xlabel("Time (s)")
+# plt.ylabel("Amplitude")
+# plt.show()

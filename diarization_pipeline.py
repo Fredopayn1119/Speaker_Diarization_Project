@@ -156,7 +156,7 @@ def segment_audio(input_file, output_dir, skip_segmentation=False):
         logger.info(f"Skipping segmentation, using existing segments in {segment_dir}")
         return segment_dir
     
-    logger.info(f"Segmenting audio from {input_file}")
+    # logger.info(f"Segmenting audio from {input_file}")
     
     try:
         # Import and run segmentation script with the input file path
@@ -197,7 +197,7 @@ def segment_audio(input_file, output_dir, skip_segmentation=False):
         logger.error(f"Error during segmentation: {str(e)}")
         raise
 
-def extract_features(segment_dir, output_dir, embedding_method="dvector", visualize=False):
+def extract_features(segment_dir, output_dir, embedding_method="xvector", visualize=False):
     """Extract speaker embeddings from segments"""
     output_file = os.path.join(output_dir, "segment_embeddings.npy")
     
@@ -290,8 +290,9 @@ def main():
     cleaned_audio = noise_removal(input_file, denoised_file, args.skip_denoise)
     
     # Step 2: Audio Segmentation
+    # segment_dir = segment_audio(cleaned_audio, args.output_dir, args.skip_segmentation)
     segment_dir = segment_audio(cleaned_audio, args.output_dir, args.skip_segmentation)
-    
+
     # Step 3: Feature Extraction
     embeddings = extract_features(segment_dir, args.output_dir, args.embedding, args.visualize)
     
@@ -331,6 +332,23 @@ def main():
     duration = end_time - start_time
     
     logger.info(f"Pipeline completed in {duration:.2f} seconds")
+
+def run_webapp():
+    """
+    Run the Speaker Diarization and Transcription web app.
+    """
+    import subprocess
+    import sys
+    
+    try:
+        subprocess.run([sys.executable, "-m", "streamlit", "run", 
+                       "speaker_diarization_and_transcription_webapp.py"], 
+                       check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error running Streamlit app: {e}")
+        print("Make sure streamlit is installed by running: pip install streamlit")
+    except KeyboardInterrupt:
+        print("Web app stopped.")
 
 if __name__ == "__main__":
     main()
