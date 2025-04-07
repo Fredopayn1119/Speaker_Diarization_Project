@@ -14,9 +14,7 @@ warnings.filterwarnings("ignore")
 
 class ASRProcessor:
     """
-    Transcribe audio segments using different ASR models:
-    1. Whisper (OpenAI)
-    2. Transformers-based models (if available)
+    Transcribe audio segments using Whisper (OpenAI)
     """
     
     def __init__(self, model_name="tiny", device=None):
@@ -29,12 +27,11 @@ class ASRProcessor:
         """
         self.model_name = model_name
         
-        # Set device - force CPU to avoid MPS sparse tensor issues
+        # Set device
         if device is None:
             if torch.cuda.is_available():
                 self.device = "cuda"
             else:
-                # Force CPU instead of MPS to avoid sparse tensor issues
                 self.device = "cpu"
         else:
             self.device = device
@@ -45,7 +42,7 @@ class ASRProcessor:
         self.model = None
     
     def load_model(self):
-        """Load the ASR model if not already loaded"""
+        """Load the Whisper model if not already loaded"""
         if self.model is not None:
             return
         
@@ -53,51 +50,9 @@ class ASRProcessor:
             import whisper
             print(f"Loading Whisper {self.model_name} model...")
             self.model = whisper.load_model(self.model_name, device=self.device)
-            self.model_type = "whisper"
             print(f"Whisper {self.model_name} model loaded successfully")
-            
         except ImportError:
-            print("Whisper not available, trying to use Transformers...")
-            try:
-                from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
-                from transformers import pipeline
-                
-                model_id = "openai/whisper-small"
-                
-                if torch.cuda.is_available():
-                    torch_dtype = torch.float16
-                    device = "cuda:0" if torch.cuda.is_available() else "cpu"
-                else:
-                    torch_dtype = torch.float32
-                    device = "cpu"
-                
-                model = AutoModelForSpeechSeq2Seq.from_pretrained(
-                    model_id, 
-                    torch_dtype=torch_dtype, 
-                    low_cpu_mem_usage=True, 
-                    use_safetensors=True
-                )
-                model.to(device)
-                
-                processor = AutoProcessor.from_pretrained(model_id)
-                
-                self.model = pipeline(
-                    "automatic-speech-recognition",
-                    model=model,
-                    tokenizer=processor.tokenizer,
-                    feature_extractor=processor.feature_extractor,
-                    max_new_tokens=128,
-                    chunk_length_s=30,
-                    batch_size=16,
-                    return_timestamps=True,
-                    torch_dtype=torch_dtype,
-                    device=device,
-                )
-                self.model_type = "transformers"
-                print("Transformers ASR model loaded successfully")
-                
-            except ImportError:
-                raise ImportError("Neither Whisper nor Transformers is available. Install one of them with: pip install openai-whisper or pip install transformers")
+            raise ImportError("Whisper is not available. Install with: pip install openai-whisper")
     
     def transcribe_audio(self, audio_path, language=None):
         """
@@ -112,27 +67,15 @@ class ASRProcessor:
         """
         self.load_model()
         
-        if self.model_type == "whisper":
-            # Use Whisper directly
-            result = self.model.transcribe(
-                audio_path,
-                language=language,
-                task="transcribe",
-                word_timestamps=True
-            )
-            
-            return result
-            
-        elif self.model_type == "transformers":
-            # Use Transformers pipeline
-            result = self.model(audio_path, return_timestamps=True)
-            
-            # Format like Whisper output for consistency
-            return {
-                "text": result["text"],
-                "segments": result.get("chunks", []),
-                "language": language or "en"
-            }
+        # Use Whisper
+        result = self.model.transcribe(
+            audio_path,
+            language=language,
+            task="transcribe",
+            word_timestamps=True
+        )
+        
+        return result
     
     def transcribe_segments(self, segment_dir, diarization_result=None):
         """
