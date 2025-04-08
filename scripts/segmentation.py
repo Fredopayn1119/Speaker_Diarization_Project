@@ -1,23 +1,17 @@
-import librosa
+import os
 import numpy as np
+import librosa
 import webrtcvad
 import scipy.io.wavfile as wav
 import matplotlib.pyplot as plt
+import librosa.display
+from scipy.spatial.distance import cosine
 
-# Load Denoised Audio
-# audio_file = "../audio_files/0638.wav"
-audio_file = "../audio_files/denoised.wav"
-
-y, sr = librosa.load(audio_file, sr=None)  # Load as float32 (-1 to 1)
-
-# Function to apply VAD and get speech timestamps
+# VAD Detection
 def get_speech_timestamps(audio, sample_rate, frame_duration_ms=30):
-    vad = webrtcvad.Vad(1)  # Low aggressiveness for better speech detection
+    vad = webrtcvad.Vad(1)
     frame_size = int(sample_rate * frame_duration_ms / 1000)
-
-    # Convert audio to PCM 16-bit
     audio_int16 = (audio * 32767).astype(np.int16)
-
     num_frames = len(audio_int16) // frame_size
     frames = np.array_split(audio_int16[:num_frames * frame_size], num_frames)
 
@@ -25,86 +19,110 @@ def get_speech_timestamps(audio, sample_rate, frame_duration_ms=30):
 
     timestamps = []
     start = None
-
     for i, is_speech in enumerate(vad_result):
-        timestamp = i * frame_duration_ms / 1000  # Convert to seconds
-
+        timestamp = i * frame_duration_ms / 1000
         if is_speech and start is None:
-            start = timestamp  # Speech started
+            start = timestamp
         elif not is_speech and start is not None:
-            timestamps.append((start, timestamp))  # Speech ended
+            timestamps.append((start, timestamp))
             start = None
-
     if start is not None:
         timestamps.append((start, len(audio) / sample_rate))
-
     return timestamps
 
-# Get VAD-based Speech Timestamps
-speech_timestamps = get_speech_timestamps(y, sr)
+# MFCC Speaker Turns
+def refine_speaker_turns(audio, sr, segment, win_size=1.0, hop_size=0.5, threshold=0.6):
+    start_time, end_time = segment
+    segment_audio = audio[int(start_time * sr):int(end_time * sr)]
+    duration = end_time - start_time
 
-# Energy-based Speaker Turn Detection
-def detect_energy_shifts(audio, sample_rate, window_size=1024, threshold_ratio=2.0):
-    energy = np.array([np.sum(np.abs(audio[i:i+window_size])) for i in range(0, len(audio), window_size)])
-    
-    # Compute threshold for detecting large energy shifts
-    mean_energy = np.mean(energy)
-    threshold = mean_energy * threshold_ratio
+    if duration < 2 * win_size:
+        return [segment]  # too short, return as-is
 
-    segment_boundaries = []
-    
-    for i in range(1, len(energy)):
-        if abs(energy[i] - energy[i-1]) > threshold:
-            segment_boundaries.append(i * window_size / sample_rate)  # Convert to seconds
+    times = np.arange(0, duration - win_size, hop_size)
+    boundaries = [start_time]
+    prev_mfcc = None
 
-    return segment_boundaries
+    for t in times:
+        frame = segment_audio[int(t * sr):int((t + win_size) * sr)]
+        mfcc = librosa.feature.mfcc(y=frame, sr=sr, n_mfcc=13)
+        mfcc_mean = np.mean(mfcc, axis=1)
 
-energy_boundaries = detect_energy_shifts(y, sr)
+        if prev_mfcc is not None:
+            dist = cosine(prev_mfcc, mfcc_mean)
+            if dist > threshold:
+                boundaries.append(start_time + t)
+        prev_mfcc = mfcc_mean
 
-# Merge VAD and Energy-Based Boundaries
-final_segments = []
+    boundaries.append(end_time)
+    refined_segments = [(boundaries[i], boundaries[i + 1]) for i in range(len(boundaries) - 1)]
+    return refined_segments
 
-for start, end in speech_timestamps:
-    split_points = [b for b in energy_boundaries if start < b < end]  # Only within current speech segment
-
-    # Create sub-segments
-    segment_start = start
-    for split in split_points:
-        final_segments.append((segment_start, split))
-        segment_start = split
-
-    final_segments.append((segment_start, end))  # Add last segment
-
-# Adaptive Windowing (Merging small segments)
+# Merge Short Segments
 def merge_short_segments(segments, min_duration=1.0):
+    if not segments:
+        return []
     merged = []
     prev_start, prev_end = segments[0]
-
     for start, end in segments[1:]:
-        if end - prev_start < min_duration:  
-            prev_end = end  # Merge
+        if end - prev_start < min_duration:
+            prev_end = end
         else:
             merged.append((prev_start, prev_end))
             prev_start, prev_end = start, end
-
     merged.append((prev_start, prev_end))
     return merged
 
-final_segments = merge_short_segments(final_segments, min_duration=1.5)
+# Main Logic
+def segment_audio_native(input_audio_path, segments_output_dir, plot_output_path=None, show_plot=False):
+    if not os.path.exists(segments_output_dir):
+        os.makedirs(segments_output_dir)
+    
+    print(f"Loading audio from: {input_audio_path}")
+    y, sr = librosa.load(input_audio_path, sr=None)
 
-# Save Segmented Audio Files
-for i, (start, end) in enumerate(final_segments):
-    segment = y[int(start * sr): int(end * sr)]
-    output_file = f"../audio_files//segments/segment_{i+1}.wav"
-    wav.write(output_file, sr, (segment * 32767).astype(np.int16))
-    print(f"Saved {output_file} ({round(end - start, 2)} sec)")
+    # Step 1: VAD - Rough speech regions
+    speech_timestamps = get_speech_timestamps(y, sr)
 
-# Plot Segmentation
-plt.figure(figsize=(12, 4))
-librosa.display.waveshow(y, sr=sr, alpha=0.5)
-for start, end in final_segments:
-    plt.axvspan(start, end, color='red', alpha=0.3)
-plt.title("Speaker Segmentation")
-plt.xlabel("Time (s)")
-plt.ylabel("Amplitude")
-plt.show()
+    # Step 2: Refine speaker changes within speech using MFCC similarity
+    refined_segments = []
+    for start, end in speech_timestamps:
+        refined = refine_speaker_turns(y, sr, (start, end), win_size=1.0, hop_size=0.5, threshold=0.6)
+        refined_segments.extend(refined)
+
+    # Step 3: Merge short segments
+    final_segments = merge_short_segments(refined_segments, min_duration=1.5)
+    
+
+    # Step 4: Save segments
+    for i, (start, end) in enumerate(final_segments):
+        segment = y[int(start * sr):int(end * sr)]
+        out_file = os.path.join(segments_output_dir, f"segment_{i+1}.wav")
+        wav.write(out_file, sr, (segment * 32767).astype(np.int16))
+        print(f"Saved: {out_file} ({round(end - start, 2)} sec)")
+
+    # Step 5: Plotting
+    if plot_output_path or show_plot:
+        plt.figure(figsize=(12, 4))
+        librosa.display.waveshow(y, sr=sr, alpha=0.5)
+        for start, end in final_segments:
+            plt.axvspan(start, end, color='red', alpha=0.3)
+        plt.title("Speaker Segmentation")
+        plt.xlabel("Time (s)")
+        plt.ylabel("Amplitude")
+        if plot_output_path:
+            plt.savefig(plot_output_path)
+            print(f"Segmentation plot saved to: {plot_output_path}")
+        if show_plot:
+            plt.show()
+        plt.close()
+
+    return final_segments
+
+if __name__ == "__main__":
+    segments = segment_audio_native(
+        input_audio_path="../audio/denoised.wav",
+        segments_output_dir="../audio/segments",
+        plot_output_path="../audio/segmentation_plot.png",
+        show_plot=False
+    )

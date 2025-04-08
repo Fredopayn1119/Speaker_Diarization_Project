@@ -1,16 +1,20 @@
 import subprocess
+import os
+import shutil
 
-# Define input and output file paths
-input_audio = "../audio_files/0638.wav"
-output_audio = "../audio_files/denoised.wav"
+def noise_removal_native(input_audio, output_audio):
+    """
+    Uses 'denoise' command to clean up audio.
+    """
+    try:
+        subprocess.run(['denoise', input_audio, output_audio, '--plot'], check=True)
+        print("Denoising completed.")
 
-# Run the pyrnnoise denoise command via subprocess
-subprocess.run(['denoise', input_audio, output_audio, '--plot'])
+    except subprocess.CalledProcessError as e:
+        print(f"Error during denoising: {e}")
 
-print("Denoising completed.")
+if __name__ == "__main__":
+    noise_removal_native("../audio/freddy_ritika.wav", "../audio/denoised.wav")
 
 
-# Algorithm	| Strengths	| Weaknesses
-# MMSE-STSA	| Good for steady noise	| Less effective for varying noise
-# RNNoise (Deep Learning) |	Great for real-world noise |	Needs GPU for best performance
-# Spectral Gating |	Simple & fast |	Can leave slight artifacts
+# RNNoise: Great for real-world noise, needs GPU for best performance
