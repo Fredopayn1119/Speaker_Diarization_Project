@@ -98,6 +98,7 @@ def segment_audio_native(input_audio_path, segments_output_dir, plot_output_path
 
     # Step 3: Merge short segments
     final_segments = merge_short_segments(refined_segments, min_duration=1.5)
+    
 
     # Step 4: Save segments
     for i, (start, end) in enumerate(final_segments):

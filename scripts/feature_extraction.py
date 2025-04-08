@@ -1,7 +1,6 @@
 import os
 import numpy as np
 import torch
-import torchaudio
 import librosa
 from tqdm import tqdm
 from resemblyzer import VoiceEncoder
@@ -10,22 +9,17 @@ import matplotlib.pyplot as plt
 
 class FeatureExtractor:
     """
-    Extract speaker embeddings from audio segments using different methods:
-    1. d-vectors (using Resemblyzer's VoiceEncoder)
-    2. ECAPA-TDNN embeddings (state-of-the-art speaker embeddings)
-    3. Wav2Vec2 embeddings (self-supervised speech representation)
+    Extract d-vector speaker embeddings from audio segments using Resemblyzer.
     """
     
-    def __init__(self, method="ecapa", device=None, overlap_ratio=0.5):
+    def __init__(self, device=None, overlap_ratio=0.5):
         """
-        Initialize the feature extractor.
+        Initialize the d-vector feature extractor.
         
         Args:
-            method: Feature extraction method - "dvector", "ecapa", "wav2vec"
             device: Device to run the model on ("cpu", "cuda", "mps" for Apple Silicon)
             overlap_ratio: Overlap ratio between frames for sliding window analysis
         """
-        self.method = method
         self.overlap_ratio = overlap_ratio
         
         # Set device
@@ -41,54 +35,9 @@ class FeatureExtractor:
             
         print(f"Using device: {self.device}")
         
-        # Initialize models based on method
-        if method == "dvector":
-            self.encoder = VoiceEncoder(device=self.device)
-            self.embedding_dim = 256  # d-vector dimension from Resemblyzer
-        
-        elif method == "ecapa":
-            # Load ECAPA-TDNN pretrained model
-            try:
-                print("Loading ECAPA-TDNN model...")
-                self.encoder = torch.hub.load('speechbrain/speechbrain', 
-                                            'EncoderClassifier.from_hparams', 
-                                            source='github',
-                                            hparams_file='speechbrain/pretrained/embeddings/spkrec-ecapa-voxceleb/hyperparams.yaml',
-                                            savedir='pretrained_models/spkrec-ecapa-voxceleb')
-                self.encoder.to(self.device)
-                self.embedding_dim = 192  # ECAPA-TDNN embedding dimension
-                print("ECAPA-TDNN model loaded successfully")
-            except Exception as e:
-                print(f"Failed to load ECAPA-TDNN model: {e}")
-                print("Falling back to d-vector extraction method")
-                self.method = "dvector"
-                self.encoder = VoiceEncoder(device=self.device)
-                self.embedding_dim = 256
-        
-        elif method == "wav2vec":
-            # Load Wav2Vec2 pretrained model
-            try:
-                from transformers import Wav2Vec2Model, Wav2Vec2Processor
-                
-                print("Loading Wav2Vec2 model...")
-                model_name = "facebook/wav2vec2-base-960h"
-                self.processor = Wav2Vec2Processor.from_pretrained(model_name)
-                self.encoder = Wav2Vec2Model.from_pretrained(model_name)
-                self.encoder.to(self.device)
-                self.embedding_dim = 768  # Wav2Vec2 base model embedding dimension
-                print("Wav2Vec2 model loaded successfully")
-            except Exception as e:
-                print(f"Failed to load Wav2Vec2 model: {e}")
-                print("Falling back to d-vector extraction method")
-                self.method = "dvector"
-                self.encoder = VoiceEncoder(device=self.device)
-                self.embedding_dim = 256
-        else:
-            # Default to d-vector if method is not recognized
-            print(f"Method {method} not recognized, using d-vector instead")
-            self.encoder = VoiceEncoder(device=self.device)
-            self.embedding_dim = 256
-            self.method = "dvector"
+        # Initialize d-vector encoder
+        self.encoder = VoiceEncoder(device=self.device)
+        self.embedding_dim = 256  # d-vector dimension from Resemblyzer
     
     def extract_dvector(self, audio, sr):
         """Extract d-vector embedding using Resemblyzer"""
@@ -107,63 +56,6 @@ class FeatureExtractor:
         embedding = self.encoder.embed_utterance(audio)
         return embedding
     
-    def extract_ecapa(self, audio, sr):
-        """Extract ECAPA-TDNN embeddings"""
-        # ECAPA-TDNN requires 16kHz audio
-        if sr != 16000:
-            audio = librosa.resample(audio, orig_sr=sr, target_sr=16000)
-            sr = 16000
-            
-        # Convert to float and normalize
-        if audio.dtype != np.float32:
-            audio = audio.astype(np.float32)
-        if np.max(np.abs(audio)) > 1.0:
-            audio = audio / np.max(np.abs(audio))
-            
-        # Convert to tensor
-        with torch.no_grad():
-            waveform = torch.FloatTensor(audio).unsqueeze(0).to(self.device)
-            embeddings = self.encoder.encode_batch(waveform)
-            embedding = embeddings.squeeze(0).cpu().numpy()
-            
-        return embedding
-    
-    def extract_wav2vec(self, audio, sr):
-        """Extract Wav2Vec2 embeddings"""
-        # Wav2Vec2 requires 16kHz audio
-        if sr != 16000:
-            audio = librosa.resample(audio, orig_sr=sr, target_sr=16000)
-            sr = 16000
-            
-        # Convert to float and normalize
-        if audio.dtype != np.float32:
-            audio = audio.astype(np.float32)
-        if np.max(np.abs(audio)) > 1.0:
-            audio = audio / np.max(np.abs(audio))
-            
-        # Process audio with Wav2Vec2
-        with torch.no_grad():
-            input_values = self.processor(audio, sampling_rate=sr, return_tensors="pt").input_values.to(self.device)
-            outputs = self.encoder(input_values)
-            
-            # Average hidden states across time dimension
-            hidden_states = outputs.last_hidden_state.squeeze(0)
-            embedding = torch.mean(hidden_states, dim=0).cpu().numpy()
-            
-        return embedding
-        
-    def extract_embedding(self, audio, sr):
-        """Extract embedding based on the selected method"""
-        if self.method == "dvector":
-            return self.extract_dvector(audio, sr)
-        elif self.method == "ecapa":
-            return self.extract_ecapa(audio, sr)
-        elif self.method == "wav2vec":
-            return self.extract_wav2vec(audio, sr)
-        else:
-            # Default to d-vector
-            return self.extract_dvector(audio, sr)
-    
     def extract_with_sliding_window(self, audio, sr, min_segment_length=1.0):
         """
         Extract embeddings using sliding window approach for more robust representations
@@ -178,7 +70,7 @@ class FeatureExtractor:
         """
         # Skip short segments
         if len(audio) / sr < min_segment_length:
-            return self.extract_embedding(audio, sr)
+            return self.extract_dvector(audio, sr)
         
         # Create sliding windows
         window_samples = int(min_segment_length * sr)
@@ -196,7 +88,7 @@ class FeatureExtractor:
             is_speech = energy > 0.0001  # Simple threshold
             
             if is_speech:
-                emb = self.extract_embedding(window, sr)
+                emb = self.extract_dvector(window, sr)
                 embeddings.append(emb)
                 voice_activity.append(1.0)
             else:
@@ -204,7 +96,7 @@ class FeatureExtractor:
         
         # If no speech detected, just use the whole segment
         if len(embeddings) == 0:
-            return self.extract_embedding(audio, sr)
+            return self.extract_dvector(audio, sr)
         
         # Weighted average of embeddings based on voice activity
         embeddings = np.array(embeddings)
@@ -223,7 +115,7 @@ class FeatureExtractor:
     
     def process_segments(self, segment_dir, use_sliding_window=True):
         """
-        Process all audio segments in a directory and extract embeddings
+        Process all audio segments in a directory and extract d-vector embeddings
         
         Args:
             segment_dir: Directory containing audio segments
@@ -235,7 +127,7 @@ class FeatureExtractor:
         segment_files = sorted([f for f in os.listdir(segment_dir) if f.endswith('.wav')])
         embeddings = {}
         
-        print(f"Extracting {self.method} embeddings for {len(segment_files)} segments...")
+        print(f"Extracting d-vector embeddings for {len(segment_files)} segments...")
         for segment_file in tqdm(segment_files):
             segment_path = os.path.join(segment_dir, segment_file)
             audio, sr = librosa.load(segment_path, sr=None)
@@ -244,7 +136,7 @@ class FeatureExtractor:
             if use_sliding_window:
                 embedding = self.extract_with_sliding_window(audio, sr)
             else:
-                embedding = self.extract_embedding(audio, sr)
+                embedding = self.extract_dvector(audio, sr)
             
             # Store with filename as key
             embeddings[segment_file] = embedding
@@ -253,14 +145,13 @@ class FeatureExtractor:
     
     def visualize_embeddings(self, embeddings, output_path=None):
         """
-        Visualize embeddings using PCA or t-SNE
+        Visualize embeddings using PCA
         
         Args:
             embeddings: Dictionary of embeddings
             output_path: Path to save the visualization
         """
         from sklearn.decomposition import PCA
-        from sklearn.manifold import TSNE
         import matplotlib.pyplot as plt
         
         # Convert embeddings to numpy array
@@ -281,7 +172,7 @@ class FeatureExtractor:
             if i % max(1, len(filenames) // 20) == 0:  # Label every 20th point
                 plt.annotate(filename, (X_pca[i, 0], X_pca[i, 1]))
         
-        plt.title(f'PCA visualization of {self.method} embeddings')
+        plt.title('PCA visualization of d-vector embeddings')
         plt.xlabel('PC1')
         plt.ylabel('PC2')
         plt.grid(True, alpha=0.3)
@@ -289,34 +180,14 @@ class FeatureExtractor:
         if output_path:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
         plt.show()
-        
-        # If we have more than 10 samples, also try t-SNE
-        if len(filenames) >= 10:
-            tsne = TSNE(n_components=2, random_state=42)
-            X_tsne = tsne.fit_transform(X)
-            
-            plt.figure(figsize=(10, 8))
-            plt.scatter(X_tsne[:, 0], X_tsne[:, 1], alpha=0.8)
-            
-            for i, filename in enumerate(filenames):
-                if i % max(1, len(filenames) // 20) == 0:  # Label every 20th point
-                    plt.annotate(filename, (X_tsne[i, 0], X_tsne[i, 1]))
-            
-            plt.title(f't-SNE visualization of {self.method} embeddings')
-            plt.grid(True, alpha=0.3)
-            
-            if output_path:
-                tsne_path = output_path.replace('.png', '_tsne.png')
-                plt.savefig(tsne_path, dpi=300, bbox_inches='tight')
-            plt.show()
 
 
 if __name__ == "__main__":
     # Example usage
     segment_dir = "../audio_files/segments"
     
-    # Create feature extractor with ECAPA-TDNN embeddings (state-of-the-art)
-    extractor = FeatureExtractor(method="ecapa", overlap_ratio=0.5)
+    # Create feature extractor for d-vectors
+    extractor = FeatureExtractor(overlap_ratio=0.5)
     
     # Process segments and extract embeddings with sliding window
     embeddings = extractor.process_segments(segment_dir, use_sliding_window=True)

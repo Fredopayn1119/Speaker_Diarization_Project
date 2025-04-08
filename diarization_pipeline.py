@@ -5,8 +5,8 @@ Speaker Diarization Pipeline
 This script runs the full speaker diarization pipeline:
 1. Noise removal
 2. Audio segmentation
-3. Feature extraction
-4. Speaker clustering
+3. Feature extraction (d-vectors)
+4. Speaker clustering (AHC)
 5. Automatic Speech Recognition (ASR)
 6. Result visualization and output
 
@@ -23,7 +23,21 @@ from pathlib import Path
 import time
 import logging
 import warnings
+
+# Suppress all warnings
 warnings.filterwarnings("ignore")
+
+# Specific suppressions for common warnings
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TensorFlow warnings
+logging.getLogger('matplotlib.font_manager').disabled = True  # Suppress matplotlib warnings
+
+# Filter out torch warnings about custom classes
+import torch
+torch._C._jit_set_profiling_executor(False)
+torch._C._jit_set_profiling_mode(False)
+
+# Suppress CUDA warnings if they appear
+os.environ['CUDA_VISIBLE_DEVICES'] = ''  # This can help with some CUDA warnings
 
 # Import components
 from scripts.feature_extraction import FeatureExtractor
@@ -73,26 +87,25 @@ def parse_arguments():
     )
     
     parser.add_argument(
-        "--embedding", 
-        type=str,
-        choices=["mfcc", "dvector", "xvector"],
-        default="dvector",
-        help="Speaker embedding method"
-    )
-    
-    parser.add_argument(
-        "--clustering", 
-        type=str,
-        choices=["ahc", "spectral", "kmeans", "dbscan"],
-        default="ahc",
-        help="Clustering method"
-    )
-    
-    parser.add_argument(
         "--num_speakers", 
         type=int,
         default=None,
-        help="Number of speakers (if known). If not provided, will be estimated."
+        help="Number of speakers (if known). If not provided, will be determined by threshold."
+    )
+    
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.3,
+        help="Threshold for AHC clustering when number of speakers is not specified"
+    )
+    
+    parser.add_argument(
+        "--linkage",
+        type=str,
+        choices=["average", "complete", "single", "ward"],
+        default="average",
+        help="Linkage method for AHC clustering"
     )
     
     parser.add_argument(
@@ -152,40 +165,7 @@ def segment_audio(input_file, output_dir, skip_segmentation=False):
         logger.info(f"Skipping segmentation, using existing segments in {segment_dir}")
         return segment_dir
     
-    # logger.info(f"Segmenting audio from {input_file}")
-    
     try:
-        # # Import and run segmentation script with the input file path
-        # import sys
-        # import importlib.util
-        
-        # # Store original argv and sys.path
-        # original_argv = sys.argv
-        # original_path = sys.path.copy()
-        
-        # # Get absolute path to segment_dir to pass to segmentation script
-        # abs_segment_dir = os.path.abspath(segment_dir)
-        
-        # # Modify sys.argv to include the input file path and segments output directory
-        # sys.argv = [sys.argv[0], input_file, abs_segment_dir]
-        
-        # # Modify sys.path to include the script directory
-        # script_dir = os.path.dirname(os.path.abspath(__file__))
-        # sys.path.insert(0, script_dir)
-        
-        # # Set environment variable for segments directory
-        # os.environ['SEGMENTS_DIR'] = abs_segment_dir
-        
-        # # Import the segmentation module
-        # import scripts.segmentation as segmentation
-        
-        # # Reload the module to ensure fresh execution with new paths
-        # importlib.reload(segmentation)
-        
-        # # Restore original argv and sys.path
-        # sys.argv = original_argv
-        # sys.path = original_path
-
         segment_audio_native(
             input_file,
             segment_dir,
@@ -200,14 +180,14 @@ def segment_audio(input_file, output_dir, skip_segmentation=False):
         logger.error(f"Error during segmentation: {str(e)}")
         raise
 
-def extract_features(segment_dir, output_dir, embedding_method="ecapa", visualize=False):
-    """Extract speaker embeddings from segments"""
+def extract_features(segment_dir, output_dir, visualize=False):
+    """Extract d-vector speaker embeddings from segments"""
     output_file = os.path.join(output_dir, "segment_embeddings.npy")
     
-    logger.info(f"Extracting {embedding_method} embeddings from segments in {segment_dir}")
+    logger.info(f"Extracting d-vector embeddings from segments in {segment_dir}")
     
     # Create feature extractor
-    extractor = FeatureExtractor(method=embedding_method)
+    extractor = FeatureExtractor()
     
     # Process segments and extract embeddings
     embeddings = extractor.process_segments(segment_dir)
@@ -218,22 +198,26 @@ def extract_features(segment_dir, output_dir, embedding_method="ecapa", visualiz
     
     # Visualize embeddings if requested
     if visualize:
-        viz_file = os.path.join(output_dir, f"{embedding_method}_embeddings_visualization.png")
+        viz_file = os.path.join(output_dir, "dvector_embeddings_visualization.png")
         logger.info(f"Generating embedding visualization: {viz_file}")
         extractor.visualize_embeddings(embeddings, viz_file)
     
     return embeddings
 
-def cluster_speakers(embeddings, output_dir, clustering_method="ahc", num_speakers=None, visualize=False):
-    """Cluster segments by speaker"""
-    logger.info(f"Clustering segments using {clustering_method} method")
+def cluster_speakers(embeddings, output_dir, num_speakers=None, threshold=0.3, linkage="average", visualize=False):
+    """Cluster segments by speaker using AHC"""
+    logger.info(f"Clustering segments using AHC with {linkage} linkage")
     
     # Create clustering model
-    clustering = SpeakerClustering(method=clustering_method)
+    clustering = SpeakerClustering()
     
-    # Perform clustering - now automatically determines number of speakers
-    # If the method is not supported (requires pre-specifying speakers), it will automatically default to "ahc"
-    segment_to_speaker = clustering.perform_clustering(embeddings, threshold=0.3)
+    # Perform clustering
+    segment_to_speaker = clustering.perform_clustering(
+        embeddings, 
+        num_speakers=num_speakers, 
+        threshold=threshold,
+        linkage=linkage
+    )
     
     # Generate diarization result
     diarization_result = clustering.generate_diarization_result(segment_to_speaker)
@@ -245,7 +229,7 @@ def cluster_speakers(embeddings, output_dir, clustering_method="ahc", num_speake
     
     # Visualize clusters if requested
     if visualize:
-        viz_file = os.path.join(output_dir, f"{clustering_method}_clustering_visualization.png")
+        viz_file = os.path.join(output_dir, "ahc_clustering_visualization.png")
         logger.info(f"Generating cluster visualization: {viz_file}")
         clustering.visualize_clusters(viz_file)
     
@@ -294,18 +278,18 @@ def main():
     cleaned_audio = noise_removal(input_file, denoised_file, args.skip_denoise)
     
     # Step 2: Audio Segmentation
-    # segment_dir = segment_audio(cleaned_audio, args.output_dir, args.skip_segmentation)
     segment_dir = segment_audio(cleaned_audio, args.output_dir, args.skip_segmentation)
 
-    # Step 3: Feature Extraction
-    embeddings = extract_features(segment_dir, args.output_dir, args.embedding, args.visualize)
+    # Step 3: Feature Extraction (d-vectors only)
+    embeddings = extract_features(segment_dir, args.output_dir, args.visualize)
     
-    # Step 4: Speaker Clustering
+    # Step 4: Speaker Clustering (AHC only)
     diarization_result = cluster_speakers(
         embeddings, 
         args.output_dir, 
-        args.clustering, 
         args.num_speakers, 
+        args.threshold,
+        args.linkage,
         args.visualize
     )
     
@@ -336,7 +320,6 @@ def main():
     duration = end_time - start_time
     
     logger.info(f"Pipeline completed in {duration:.2f} seconds")
-
 
 
 if __name__ == "__main__":
