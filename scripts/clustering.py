@@ -256,10 +256,10 @@ class SpeakerClustering:
                        color=cmap(label % 10),
                        alpha=0.8)
         
-        # Add some segment names as labels
-        for i, name in enumerate(self.segment_names):
-            if i % max(1, len(self.segment_names) // 10) == 0:  # Label some points
-                plt.annotate(name, (X_pca[i, 0], X_pca[i, 1]), fontsize=8)
+        # # Add some segment names as labels
+        # for i, name in enumerate(self.segment_names):
+        #     if i % max(1, len(self.segment_names) // 10) == 0:  # Label some points
+        #         plt.annotate(name, (X_pca[i, 0], X_pca[i, 1]), fontsize=8)
         
         plt.title('PCA visualization of AHC clustering')
         plt.xlabel('PC1')

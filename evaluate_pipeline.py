@@ -12,7 +12,7 @@ from scripts.clustering import SpeakerClustering
 def main():
     # ----- Configuration -----
     # Specify your sample audio file here
-    input_audio = "audio/Sample_2.wav"  # <-- update with your audio file path
+    input_audio = "audio/New Recording 38.wav"  # <-- update with your audio file path
     output_dir = "eval"  # output directory for all results
     os.makedirs(output_dir, exist_ok=True)
 
@@ -29,16 +29,16 @@ def main():
     segments = segment_audio_native(denoised_audio, segments_dir, plot_output_path=segmentation_plot, show_plot=False)
 
     # ----- Step 3 & 4: Feature Extraction and Clustering -----
-    feature_methods = ["dvector", "ecapa", "wav2vec"]
+    feature_methods = ["dvector"]
     # Updated to only include methods that automatically determine number of speakers
-    clustering_methods = ["ahc", "dbscan"]
+    clustering_methods = ["ahc"]
 
     # Dictionary to store embeddings for each feature extraction method
     embeddings_results = {}
 
     for feat_method in feature_methods:
         print(f"\nExtracting features using method: {feat_method}")
-        extractor = FeatureExtractor(method=feat_method, overlap_ratio=0.5)
+        extractor = FeatureExtractor(overlap_ratio=0.5)
         embeddings = extractor.process_segments(segments_dir, use_sliding_window=True)
         embeddings_results[feat_method] = embeddings
         # Optionally save embeddings for reference
@@ -46,7 +46,7 @@ def main():
 
         for cluster_method in clustering_methods:
             print(f"Clustering using {cluster_method} on {feat_method} embeddings")
-            clustering = SpeakerClustering(method=cluster_method)
+            clustering = SpeakerClustering()
             # Perform clustering (automatically determines number of speakers)
             # For AHC, use a threshold of 0.3
             # For DBSCAN, the parameters are automatically determined
