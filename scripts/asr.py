@@ -8,29 +8,21 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Any, Optional
 import tempfile
 import warnings
+import whisper
 
 # Suppress warnings
 warnings.filterwarnings("ignore")
 
 class ASRProcessor:
     """
-    Transcribe audio segments using Whisper (OpenAI)
+    Transcribe audio segments using Whisper
     """
     
     def __init__(self, model_name="tiny", device=None):
-        """
-        Initialize the ASR processor.
-        
-        Args:
-            model_name: Whisper model size ("tiny", "base", "small", "medium", "large", "turbo")
-            device: Device to run the model on ("cpu", "cuda", "mps")
-        """
         self.model_name = model_name
         
         # Set device
         if device is None:
-            # Check for Apple Silicon (M1/M2/M3) GPU
-            
             if torch.cuda.is_available():
                 self.device = "cuda"
             else:
@@ -40,16 +32,13 @@ class ASRProcessor:
             
         print(f"Using device: {self.device} for ASR")
         
-        # Load model lazily (on first use)
+        # Load model lazily
         self.model = None
     
     def load_model(self):
-        """Load the Whisper model if not already loaded"""
         if self.model is not None:
             return
-        
         try:
-            import whisper
             print(f"Loading Whisper {self.model_name} model...")
             self.model = whisper.load_model(self.model_name, device=self.device)
             print(f"Whisper {self.model_name} model loaded successfully")
@@ -57,16 +46,6 @@ class ASRProcessor:
             raise ImportError("Whisper is not available. Install with: pip install openai-whisper")
     
     def transcribe_audio(self, audio_path, language=None):
-        """
-        Transcribe an audio file
-        
-        Args:
-            audio_path: Path to the audio file
-            language: Language code (e.g., "en") - if None, will be detected
-            
-        Returns:
-            Transcription result dictionary
-        """
         self.load_model()
         
         # Use Whisper
@@ -80,16 +59,6 @@ class ASRProcessor:
         return result
     
     def transcribe_segments(self, segment_dir, diarization_result=None):
-        """
-        Transcribe all audio segments in a directory
-        
-        Args:
-            segment_dir: Directory containing audio segments
-            diarization_result: Optional diarization result to match segments with speakers
-            
-        Returns:
-            List of transcribed segments with timing and speaker information
-        """
         # Either get segment files from directory or from diarization result
         if diarization_result:
             # Extract all segment filenames from diarization result
@@ -202,16 +171,6 @@ class ASRProcessor:
         return transcribed_segments
     
     def integrate_with_diarization(self, transcribed_segments, diarization_result):
-        """
-        Integrate transcription with diarization results
-        
-        Args:
-            transcribed_segments: List of transcribed segments
-            diarization_result: Diarization result dictionary
-            
-        Returns:
-            Updated diarization result with transcriptions
-        """
         # Create a copy of the diarization result
         result = diarization_result.copy()
         
@@ -238,13 +197,6 @@ class ASRProcessor:
         return result
     
     def save_transcription_result(self, result, output_path):
-        """
-        Save transcription and diarization results to a JSON file
-        
-        Args:
-            result: Combined result dictionary
-            output_path: Path to save the JSON file
-        """
         with open(output_path, 'w') as f:
             json.dump(result, f, indent=2)
         

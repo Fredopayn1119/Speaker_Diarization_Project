@@ -13,27 +13,15 @@ from sklearn.metrics import silhouette_score
 
 class SpeakerClustering:
     """
-    Agglomerative Hierarchical Clustering (AHC) for speaker diarization.
+    Agglomerative Hierarchical Clustering for speaker diarization
     """
     
     def __init__(self):
-        """
-        Initialize the AHC clustering model.
-        """
         self.labels_ = None
         self.embeddings = None
         self.segment_names = None
     
     def _prepare_embeddings(self, embeddings_dict: Dict[str, np.ndarray]) -> Tuple[np.ndarray, List[str]]:
-        """
-        Convert embeddings dictionary to matrix and normalize.
-        
-        Args:
-            embeddings_dict: Dictionary mapping segment names to embeddings
-            
-        Returns:
-            Tuple of (embeddings_matrix, segment_names)
-        """
         segment_names = list(embeddings_dict.keys())
         embeddings = np.array([embeddings_dict[name] for name in segment_names])
         
@@ -43,16 +31,6 @@ class SpeakerClustering:
         return embeddings, segment_names
     
     def _detect_outliers(self, embeddings: np.ndarray, threshold: float = 20000000000.0) -> np.ndarray:
-        """
-        Detect outliers in the embeddings using a distance-based approach.
-
-        Args:
-            embeddings: Normalized embeddings matrix.
-            threshold: Z-score threshold to classify outliers.
-
-        Returns:
-            A boolean mask where True indicates an outlier.
-        """
         # Compute the mean and standard deviation of the embeddings
         mean = np.mean(embeddings, axis=0)
         std = np.std(embeddings, axis=0)
@@ -67,19 +45,6 @@ class SpeakerClustering:
     def perform_clustering(self, embeddings_dict: Dict[str, np.ndarray], 
                           num_speakers: int = None, threshold: float = 0.3,
                           linkage: str = 'average', outlier_threshold: float = 3.0):
-        """
-        Perform AHC clustering on speaker embeddings, handling outliers.
-
-        Args:
-            embeddings_dict: Dictionary mapping segment names to embeddings
-            num_speakers: Number of speakers (if None, determined by threshold)
-            threshold: Distance threshold for AHC (when num_speakers is None)
-            linkage: Linkage method ('average', 'complete', 'single', 'ward')
-            outlier_threshold: Z-score threshold to classify outliers
-
-        Returns:
-            Dictionary mapping segment names to speaker labels
-        """
         # Prepare embeddings
         X, segment_names = self._prepare_embeddings(embeddings_dict)
         self.embeddings = X
@@ -132,15 +97,9 @@ class SpeakerClustering:
                     cluster_counts = np.bincount(temp_labels)
 
                     # count number of clusters with fewer than 2 samples
-                    # if more than 2 clusters have fewer than 2 samples, skip this k
-
                     if np.sum(cluster_counts < 2) > 2:
                         print(f"Skipping k={k} - too many clusters with fewer than 2 samples")
                         continue
-
-                    # if np.any(cluster_counts < 2):
-                    #     print(f"Skipping k={k} - some clusters have fewer than 2 samples")
-                    #     continue
 
                     score = silhouette_score(
                         X_non_outliers if linkage == 'ward' else distance_matrix, 
@@ -158,7 +117,7 @@ class SpeakerClustering:
                     print(f"Best silhouette score {best_sil:.3f} found with {best_k} clusters")
                     num_speakers = best_k
                 else:
-                    print("Silhouette score too low or no valid k found, falling back to threshold-based clustering")
+                    print("Silhouette score too low, falling back to threshold-based clustering")
                     clustering = AgglomerativeClustering(
                         n_clusters=None,
                         distance_threshold=threshold,
@@ -169,7 +128,7 @@ class SpeakerClustering:
                         distance_matrix if linkage != 'ward' else X_non_outliers
                     )
             else:
-                print("Not enough non-outlier segments for meaningful silhouette scoring, falling back to threshold-based clustering")
+                print("Not enough segments for silhouette scoring, falling back to threshold-based clustering")
                 clustering = AgglomerativeClustering(
                     n_clusters=None,
                     distance_threshold=threshold,
@@ -226,12 +185,6 @@ class SpeakerClustering:
         return result
     
     def visualize_clusters(self, output_path=None):
-        """
-        Visualize clustering results using PCA
-        
-        Args:
-            output_path: Path to save the visualization
-        """
         if self.labels_ is None or self.embeddings is None:
             raise ValueError("No clustering results to visualize. Run perform_clustering first.")
             
@@ -256,11 +209,6 @@ class SpeakerClustering:
                        color=cmap(label % 10),
                        alpha=0.8)
         
-        # # Add some segment names as labels
-        # for i, name in enumerate(self.segment_names):
-        #     if i % max(1, len(self.segment_names) // 10) == 0:  # Label some points
-        #         plt.annotate(name, (X_pca[i, 0], X_pca[i, 1]), fontsize=8)
-        
         plt.title('PCA visualization of AHC clustering')
         plt.xlabel('PC1')
         plt.ylabel('PC2')
@@ -273,17 +221,6 @@ class SpeakerClustering:
     
     def generate_diarization_result(self, segment_to_speaker: Dict[str, int], 
                                    segment_timing_info: Dict[str, Dict[str, float]] = None) -> Dict:
-        """
-        Generate structured diarization results from clustering.
-        
-        Args:
-            segment_to_speaker: Dictionary mapping segment names to speaker IDs
-            segment_timing_info: Dictionary with segment timing information
-                                (if None, will try to parse from filenames)
-            
-        Returns:
-            Dictionary with structured diarization results
-        """
         # Initialize result structure
         result = {
             "num_speakers": len(set(segment_to_speaker.values())),
@@ -358,13 +295,6 @@ class SpeakerClustering:
         return result
     
     def save_diarization_result(self, result: Dict, output_path: str):
-        """
-        Save diarization results to a JSON file.
-        
-        Args:
-            result: Diarization result dictionary
-            output_path: Path to save the JSON file
-        """
         with open(output_path, 'w') as f:
             json.dump(result, f, indent=2)
         

@@ -9,17 +9,10 @@ import matplotlib.pyplot as plt
 
 class FeatureExtractor:
     """
-    Extract d-vector speaker embeddings from audio segments using Resemblyzer.
+    Extract d-vector speaker embeddings from audio segments
     """
     
     def __init__(self, device=None, overlap_ratio=0.5):
-        """
-        Initialize the d-vector feature extractor.
-        
-        Args:
-            device: Device to run the model on ("cpu", "cuda", "mps" for Apple Silicon)
-            overlap_ratio: Overlap ratio between frames for sliding window analysis
-        """
         self.overlap_ratio = overlap_ratio
         
         # Set device
@@ -35,13 +28,12 @@ class FeatureExtractor:
             
         print(f"Using device: {self.device}")
         
-        # Initialize d-vector encoder
+        # Init d-vector encoder
         self.encoder = VoiceEncoder(device=self.device)
-        self.embedding_dim = 256  # d-vector dimension from Resemblyzer
+        self.embedding_dim = 256  # d-vector dimension
     
     def extract_dvector(self, audio, sr):
-        """Extract d-vector embedding using Resemblyzer"""
-        # Resemblyzer requires 16kHz audio
+        # Resemblyzer needs 16kHz audio
         if sr != 16000:
             audio = librosa.resample(audio, orig_sr=sr, target_sr=16000)
             sr = 16000
@@ -52,22 +44,11 @@ class FeatureExtractor:
         if np.max(np.abs(audio)) > 1.0:
             audio = audio / np.max(np.abs(audio))
         
-        # Extract the embedding (d-vector)
+        # Extract the embedding
         embedding = self.encoder.embed_utterance(audio)
         return embedding
     
     def extract_with_sliding_window(self, audio, sr, min_segment_length=1.0):
-        """
-        Extract embeddings using sliding window approach for more robust representations
-        
-        Args:
-            audio: Audio signal
-            sr: Sample rate
-            min_segment_length: Minimum segment length in seconds
-            
-        Returns:
-            Aggregated embedding vector
-        """
         # Skip short segments
         if len(audio) / sr < min_segment_length:
             return self.extract_dvector(audio, sr)
@@ -114,16 +95,6 @@ class FeatureExtractor:
         return avg_embedding
     
     def process_segments(self, segment_dir, use_sliding_window=True):
-        """
-        Process all audio segments in a directory and extract d-vector embeddings
-        
-        Args:
-            segment_dir: Directory containing audio segments
-            use_sliding_window: Whether to use sliding window approach
-            
-        Returns:
-            Dictionary with segment filenames and their embeddings
-        """
         segment_files = sorted([f for f in os.listdir(segment_dir) if f.endswith('.wav')])
         embeddings = {}
         
@@ -144,13 +115,6 @@ class FeatureExtractor:
         return embeddings
     
     def visualize_embeddings(self, embeddings, output_path=None):
-        """
-        Visualize embeddings using PCA
-        
-        Args:
-            embeddings: Dictionary of embeddings
-            output_path: Path to save the visualization
-        """
         from sklearn.decomposition import PCA
         import matplotlib.pyplot as plt
         

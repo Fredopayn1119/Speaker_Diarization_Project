@@ -1,15 +1,6 @@
 #!/usr/bin/env python3
 """
 Speaker Diarization Pipeline
-
-This script runs the full speaker diarization pipeline:
-1. Noise removal
-2. Audio segmentation
-3. Feature extraction (d-vectors)
-4. Speaker clustering (AHC)
-5. Automatic Speech Recognition (ASR)
-6. Result visualization and output
-
 Author: Priyanshu Agrawal
 """
 
@@ -24,20 +15,18 @@ import time
 import logging
 import warnings
 
-# Suppress all warnings
+# Suppress warnings
 warnings.filterwarnings("ignore")
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+logging.getLogger('matplotlib.font_manager').disabled = True
 
-# Specific suppressions for common warnings
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TensorFlow warnings
-logging.getLogger('matplotlib.font_manager').disabled = True  # Suppress matplotlib warnings
-
-# Filter out torch warnings about custom classes
+# Filter out torch warnings
 import torch
 torch._C._jit_set_profiling_executor(False)
 torch._C._jit_set_profiling_mode(False)
 
-# Suppress CUDA warnings if they appear
-os.environ['CUDA_VISIBLE_DEVICES'] = ''  # This can help with some CUDA warnings
+# Suppress CUDA warnings
+os.environ['CUDA_VISIBLE_DEVICES'] = ''
 
 # Import components
 from scripts.feature_extraction import FeatureExtractor
@@ -54,7 +43,6 @@ logging.basicConfig(
 logger = logging.getLogger('diarization_pipeline')
 
 def parse_arguments():
-    """Parse command line arguments"""
     parser = argparse.ArgumentParser(
         description="Speaker Diarization Pipeline",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -90,14 +78,14 @@ def parse_arguments():
         "--num_speakers", 
         type=int,
         default=None,
-        help="Number of speakers (if known). If not provided, will be determined by threshold."
+        help="Number of speakers (if known)"
     )
     
     parser.add_argument(
         "--threshold",
         type=float,
         default=0.3,
-        help="Threshold for AHC clustering when number of speakers is not specified"
+        help="Threshold for AHC clustering"
     )
     
     parser.add_argument(
@@ -131,19 +119,17 @@ def parse_arguments():
     parser.add_argument(
         "--visualize", 
         action="store_true",
-        help="Generate visualizations for embeddings and clusters"
+        help="Generate visualizations"
     )
     
     return parser.parse_args()
 
 def ensure_directory_exists(path):
-    """Ensure directory exists, create if it doesn't"""
     if not os.path.exists(path):
         os.makedirs(path)
         logger.info(f"Created directory: {path}")
 
 def noise_removal(input_file, output_file, skip_denoise=False):
-    
     if skip_denoise:
         return input_file
 
@@ -157,7 +143,6 @@ def noise_removal(input_file, output_file, skip_denoise=False):
         raise
 
 def segment_audio(input_file, output_dir, skip_segmentation=False):
-    """Segment audio into speech chunks"""
     segment_dir = os.path.join(output_dir, "segments")
     ensure_directory_exists(segment_dir)
     
@@ -169,7 +154,7 @@ def segment_audio(input_file, output_dir, skip_segmentation=False):
         segment_audio_native(
             input_file,
             segment_dir,
-            plot_output_path=os.path.join(segment_dir, "segmentation_plot.png"),
+            plot_output_path=os.path.join(output_dir, "segmentation_plot.png"),
             show_plot=False
         )
         
@@ -181,8 +166,7 @@ def segment_audio(input_file, output_dir, skip_segmentation=False):
         raise
 
 def extract_features(segment_dir, output_dir, visualize=False):
-    """Extract d-vector speaker embeddings from segments"""
-    output_file = os.path.join(output_dir, "segment_embeddings.npy")
+    output_file = os.path.join(output_dir, "dvector_embeddings.npy")
     
     logger.info(f"Extracting d-vector embeddings from segments in {segment_dir}")
     
@@ -198,14 +182,13 @@ def extract_features(segment_dir, output_dir, visualize=False):
     
     # Visualize embeddings if requested
     if visualize:
-        viz_file = os.path.join(output_dir, "dvector_embeddings_visualization.png")
+        viz_file = os.path.join(output_dir, "clustering_dvector_embeddings.png")
         logger.info(f"Generating embedding visualization: {viz_file}")
         extractor.visualize_embeddings(embeddings, viz_file)
     
     return embeddings
 
 def cluster_speakers(embeddings, output_dir, num_speakers=None, threshold=0.3, linkage="average", visualize=False):
-    """Cluster segments by speaker using AHC"""
     logger.info(f"Clustering segments using AHC with {linkage} linkage")
     
     # Create clustering model
@@ -229,14 +212,13 @@ def cluster_speakers(embeddings, output_dir, num_speakers=None, threshold=0.3, l
     
     # Visualize clusters if requested
     if visualize:
-        viz_file = os.path.join(output_dir, "ahc_clustering_visualization.png")
+        viz_file = os.path.join(output_dir, "clustering_dvector_ahc.png")
         logger.info(f"Generating cluster visualization: {viz_file}")
         clustering.visualize_clusters(viz_file)
     
     return diarization_result
 
 def transcribe_audio(segment_dir, diarization_result, output_dir, model_name="tiny"):
-    """Transcribe audio segments and integrate with diarization"""
     logger.info(f"Transcribing audio segments using Whisper {model_name} model")
     
     # Create ASR processor
@@ -256,7 +238,6 @@ def transcribe_audio(segment_dir, diarization_result, output_dir, model_name="ti
     return result
 
 def main():
-    """Main pipeline function"""
     # Parse arguments
     args = parse_arguments()
     

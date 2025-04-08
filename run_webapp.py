@@ -1,26 +1,11 @@
-#!/usr/bin/env python3
-"""
-Speaker Diarization Web App Launcher
-
-This script launches the Speaker Diarization and Transcription Web App.
-Simply run this script to start the web interface.
-
-Usage:
-    python run_webapp.py
-"""
-
 import subprocess
 import sys
 
 def run_webapp():
-    """
-    Run the Speaker Diarization and Transcription web app.
-    """
-
     
     try:
         subprocess.run([sys.executable, "-m", "streamlit", "run", 
-                       "speaker_diarization_and_transcription_webapp.py"], 
+                       "app.py"], 
                        check=True)
     except subprocess.CalledProcessError as e:
         print(f"Error running Streamlit app: {e}")

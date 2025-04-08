@@ -32,9 +32,6 @@ def get_speech_timestamps(audio, sample_rate, frame_duration_ms=30):
 
 # MFCC Speaker Turns
 def refine_speaker_turns(audio, sr, segment, win_size=1.0, hop_size=0.5, threshold=0.6):
-    """
-    Detect speaker change within a VAD segment using MFCC cosine distance.
-    """
     start_time, end_time = segment
     segment_audio = audio[int(start_time * sr):int(end_time * sr)]
     duration = end_time - start_time
@@ -78,9 +75,6 @@ def merge_short_segments(segments, min_duration=1.0):
 
 # Main Logic
 def segment_audio_native(input_audio_path, segments_output_dir, plot_output_path=None, show_plot=False):
-    """
-    Segments clean speaker turns using VAD + MFCC similarity.
-    """
     if not os.path.exists(segments_output_dir):
         os.makedirs(segments_output_dir)
     
