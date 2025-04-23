@@ -40,14 +40,14 @@ The system implements a complete speaker diarization pipeline:
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/yourusername/speaker-diarization.git
-   cd speaker-diarization
+   git clone https://github.com/yourusername/Speaker_Diarization_Project.git
+   cd Speaker_Diarization_Project
    ```
 
 2. Create a Conda environment:
    ```bash
-   conda create -n speaker-diarization python=3.9 -y
-   conda activate speaker-diarization
+   conda create -n Speaker_Diarization_Project python=3.9 -y
+   conda activate Speaker_Diarization_Project
    ```
 
 3. Install required packages:
